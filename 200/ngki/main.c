@@ -27,13 +27,13 @@
 #define CMD_SUSFS_SET_ANDROID_DATA_ROOT_PATH 0x55551
 #define CMD_SUSFS_SET_SDCARD_ROOT_PATH 0x55552
 #define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553
-#define CMD_SUSFS_ADD_SUS_MOUNT 0x55560
+#define CMD_SUSFS_ADD_SUS_MOUNT 0x55560 /* deprecated */
 #define CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS 0x55561
-#define CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE 0x55562
+#define CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE 0x55562 /* deprecated */
 #define CMD_SUSFS_ADD_SUS_KSTAT 0x55570
 #define CMD_SUSFS_UPDATE_SUS_KSTAT 0x55571
 #define CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY 0x55572
-#define CMD_SUSFS_ADD_TRY_UMOUNT 0x55580
+#define CMD_SUSFS_ADD_TRY_UMOUNT 0x55580 /* deprecated */
 #define CMD_SUSFS_SET_UNAME 0x55590
 #define CMD_SUSFS_ENABLE_LOG 0x555a0
 #define CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG 0x555b0
@@ -73,7 +73,7 @@
 /******************
  ** Define Macro **
  ******************/
-#define ERR_CMD_NOT_SUPPORTED 255
+#define ERR_CMD_NOT_SUPPORTED 126
 #define log(fmt, msg...) printf(fmt, ##msg);
 #define PRT_MSG_IF_CMD_NOT_SUPPORTED(x, cmd) if (x == ERR_CMD_NOT_SUPPORTED) log("[-] CMD: '0x%x', SUSFS operation not supported, please enable it in kernel\n", cmd)
 
@@ -94,18 +94,7 @@ struct st_external_dir {
 	int                     err;
 };
 
-struct st_susfs_sus_mount {
-	char                    target_pathname[SUSFS_MAX_LEN_PATHNAME];
-	unsigned long           target_dev;
-	int                     err;
-};
-
 struct st_susfs_hide_sus_mnts_for_all_procs {
-	bool                    enabled;
-	int                     err;
-};
-
-struct st_susfs_umount_for_zygote_iso_service {
 	bool                    enabled;
 	int                     err;
 };
@@ -126,12 +115,6 @@ struct st_susfs_sus_kstat {
 	long                    spoofed_ctime_tv_nsec;
 	unsigned long           spoofed_blksize;
 	unsigned long long      spoofed_blocks;
-	int                     err;
-};
-
-struct st_susfs_try_umount {
-	char                    target_pathname[SUSFS_MAX_LEN_PATHNAME];
-	int                     mnt_mode;
 	int                     err;
 };
 
@@ -255,24 +238,12 @@ static void print_help(void) {
 	log("      |--> To hide paths after /sdcard/, first you need to tell the susfs kernel where is the actual path '/sdcard' located, as it may vary on different phones\n");
 	log("      |--> Warning: All no root access granted user apps cannot see any sus paths in /sdcard/ unless you grant root access for the target app\n");
 	log("\n");
-	log("    add_sus_mount <mounted_path>\n");
-	log("      |--> Added mounted path will be hidden from /proc/self/[mounts|mountinfo|mountstats]\n");
-	log("      |--> Please be reminded that the target path must be added after the bind mount or overlay operation, otherwise it won't be effective\n");
-	log("\n");
 	log("    hide_sus_mnts_for_all_procs <0|1>\n");
 	log("      |--> 0 -> Do not hide sus mounts for all processes but only non ksu process\n");
 	log("      |--> 1 -> Hide all sus mounts for all processes no matter they are ksu processes or not\n");
 	log("      |--> NOTE:\n");
 	log("           - It is set to 1 in kernel by default\n");
 	log("           - It is recommended to set to 0 after screen is unlocked, or during service.sh or boot-completed.sh stage, as this should fix the issue on some rooted apps that rely on mounts mounted by ksu process\n");
-	log("\n");
-	log("    umount_for_zygote_iso_service <0|1>\n");
-	log("      |--> 0 -> Do not umount for zygote spawned isolated service process\n");
-	log("      |--> 1 -> Enable to umount for zygote spawned isolated service process\n");
-	log("      |--> NOTE:\n");
-	log("           - By default it is set to 0 in kernel, or create '/data/adb/susfs_umount_for_zygote_iso_service' to set it to 1 on boot\n");
-	log("           - Set to 0 if you have modules that overlay framework system files like framework.jar or other overlay apk, then atm you should let other module like zygisk and its hiding module to take care of, otherwise it may cause bootloop\n");
-	log("           - Set to 1 if you DO NOT have such modules mentioned above, otherwise sus mounts won't be umounted for zygote spawned isolated process and they will be detected\n");
 	log("\n");
 	log("    add_sus_kstat_statically </path/of/file_or_directory> <ino> <dev> <nlink> <size> <atime> <atime_nsec> <mtime> <mtime_nsec> <ctime> <ctime_nsec> <blocks> <blksize>\n");
 	log("      |--> Use 'stat' tool to find the format:\n");
@@ -297,11 +268,6 @@ static void print_help(void) {
 	log("    update_sus_kstat_full_clone </path/of/file_or_directory>\n");
 	log("      |--> Add the desired path you have added before via <add_sus_kstat> to complete the kstat spoofing procedure\n");
 	log("      |--> This updates the target ino only, other stat members are remained the same as the original stat\n");
-	log("\n");
-	log("    add_try_umount </path/of/file_or_directory> <mode>\n");
-	log("      |--> Added path will be umounted from KSU for all UIDs that are NOT su allowed, and profile template configured with umount\n");
-	log("      |--> <mode>: 0 -> umount with no flags, 1 -> umount with MNT_DETACH\n");
-	log("      |--> NOTE: susfs umount takes precedence of ksu umount\n");
 	log("\n");
 	log("    set_uname <release> <version>\n");
 	log("      |--> NOTE: Only 'release' and <version> are spoofed as others are no longer needed\n");
@@ -398,22 +364,6 @@ int main(int argc, char *argv[]) {
 		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_SET_SDCARD_ROOT_PATH, &info);
 		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_SET_SDCARD_ROOT_PATH);
 		return info.err;
-	// add_sus_mount
-	} else if (argc == 3 && !strcmp(argv[1], "add_sus_mount")) {
-		struct st_susfs_sus_mount info = {0};
-		struct stat sb;
-
-		info.err = get_file_stat(argv[2], &sb);
-		if (info.err) {
-			log("[-] Failed to get stat from path: '%s'\n", argv[2]);
-			return info.err;
-		}
-		strncpy(info.target_pathname, argv[2], SUSFS_MAX_LEN_PATHNAME-1);
-		info.target_dev = sb.st_dev;
-		info.err = ERR_CMD_NOT_SUPPORTED;
-		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_ADD_SUS_MOUNT, &info);
-		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_ADD_SUS_MOUNT);
-		return info.err;
 	// hide_sus_mnts_for_all_procs
 	} else if (argc == 3 && !strcmp(argv[1], "hide_sus_mnts_for_all_procs")) {
 		struct st_susfs_hide_sus_mnts_for_all_procs info = {0};
@@ -426,19 +376,6 @@ int main(int argc, char *argv[]) {
 		info.err = ERR_CMD_NOT_SUPPORTED;
 		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS, &info);
 		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS);
-		return info.err;
-	// umount_for_zygote_iso_service
-	} else if (argc == 3 && !strcmp(argv[1], "umount_for_zygote_iso_service")) {
-		struct st_susfs_umount_for_zygote_iso_service info = {0};
-
-		if (strcmp(argv[2], "0") && strcmp(argv[2], "1")) {
-			print_help();
-			return -EINVAL;
-		}
-		info.enabled = atoi(argv[2]);
-		info.err = ERR_CMD_NOT_SUPPORTED;
-		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE, &info);
-		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE);
 		return info.err;
 	// add_sus_kstat_statically
 	} else if (argc == 15 && !strcmp(argv[1], "add_sus_kstat_statically")) {
@@ -626,40 +563,6 @@ int main(int argc, char *argv[]) {
 		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_UPDATE_SUS_KSTAT, &info);
 		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_UPDATE_SUS_KSTAT);
 		return info.err;
-	// add_try_umount
-	} else if (argc == 4 && !strcmp(argv[1], "add_try_umount")) {
-		struct st_susfs_try_umount info = {0};
-		char* endptr;
-		char abs_path[PATH_MAX], *p_abs_path;
-		
-		strncpy(info.target_pathname, argv[2], SUSFS_MAX_LEN_PATHNAME-1);
-		p_abs_path = realpath(info.target_pathname, abs_path);
-		if (p_abs_path == NULL) {
-			perror("realpath");
-			return errno;
-		}
-		if (!strcmp(p_abs_path, "/odm") ||
-			!strcmp(p_abs_path, "/system") ||
-			!strcmp(p_abs_path, "/vendor") ||
-			!strcmp(p_abs_path, "/product") ||
-			!strcmp(p_abs_path, "/system_ext") ||
-			!strcmp(p_abs_path, "/data/adb/modules")) {
-			log("[-] %s cannot be added to try_umount, because it will be umounted by ksu lastly\n", p_abs_path);
-			return -EINVAL;
-		}
-		if (strcmp(argv[3], "0") && strcmp(argv[3], "1")) {
-			print_help();
-			return -EINVAL;
-		}
-		info.mnt_mode = strtol(argv[3], &endptr, 10);
-		if (*endptr != '\0') {
-			print_help();
-			return -EINVAL;
-		}
-		info.err = ERR_CMD_NOT_SUPPORTED;
-		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_ADD_TRY_UMOUNT, &info);
-		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_ADD_TRY_UMOUNT);
-		return info.err;
 	// set_uname
 	} else if (argc == 4 && !strcmp(argv[1], "set_uname")) {
 		struct st_susfs_uname info = {0};
@@ -830,3 +733,4 @@ int main(int argc, char *argv[]) {
 out:
 	return 0;
 }
+
